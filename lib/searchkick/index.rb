@@ -211,7 +211,13 @@ module Searchkick
 
     # note: this is designed to be used internally
     # so it does not check object matches index class
-    def reindex(object, method_name: nil, ignore_missing: nil, full: false, **options)
+    def reindex(object, method_name: nil, ignore_missing: nil, full: false, use_bulk_queue: false, **options)
+      #handle use_bulk_queue option
+      if use_bulk_queue
+        options[:job_options] ||= {}
+        options[:job_options][:queue] ||= Searchkick.bulk_queue_name
+      end
+      
       if @options[:job_options]
         options[:job_options] = (@options[:job_options] || {}).merge(options[:job_options] || {})
       end
