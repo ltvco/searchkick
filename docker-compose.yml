@@ -1,0 +1,83 @@
+# Docker Compose for Searchkick testing
+services:
+  searchkick:
+    build:
+      context: .
+      args:
+        - BUNDLE_GEMSTASH__LTVOPS__COM
+    image: searchkick:dev
+    container_name: searchkick_app
+    command: bundle exec rake test
+    stdin_open: true
+    tty: true
+    working_dir: /app
+    networks:
+      - searchkick_gem
+    expose:
+      - "3000"
+    env_file: ./dev.env
+    volumes:
+      - .:/app:cached
+    depends_on:
+      searchkick_elasticsearch:
+        condition: service_healthy
+      searchkick_redis:
+        condition: service_healthy
+
+  searchkick_elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.0.0
+    container_name: searchkick_elasticsearch
+    environment:
+      - cluster.name=elasticsearch-cluster
+      - node.name=searchkick_elasticsearch
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+      - "path.repo=/tmp"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - data-elasticsearch:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    expose:
+      - "9200"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  searchkick_redis:
+    image: redis:7.0-alpine
+    container_name: searchkick_redis
+    volumes:
+      - data-redis:/data
+    ports:
+      - "6379:6379"
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 20s
+      retries: 10
+
+volumes:
+  data-elasticsearch:
+    driver: local
+  data-redis:
+    driver: local
+
+networks:
+  searchkick_gem:
+    driver: bridge
+    name: searchkick_gem
+

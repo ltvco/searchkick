@@ -20,3 +20,5 @@ tmp
 .ruby-*
 .idea/
 *.sqlite3
+.env
+dev.env
