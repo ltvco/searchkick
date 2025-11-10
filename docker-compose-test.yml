@@ -7,6 +7,8 @@ services:
         - BUNDLE_GEMSTASH__LTVOPS__COM
     image: searchkick:test
     working_dir: /app
+    volumes:
+      - .:/app
     environment:
       - ELASTICSEARCH_URL=http://searchkick_test_elasticsearch:9200
       - REDIS_URL=redis://searchkick_test_redis:6379/0
@@ -33,10 +35,11 @@ services:
     networks:
       - searchkick_test_network
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      test: ["CMD-SHELL", "curl --silent --fail localhost:9200/_cluster/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 30
+      start_period: 30s
 
   searchkick_test_redis:
     image: redis:7.0-alpine

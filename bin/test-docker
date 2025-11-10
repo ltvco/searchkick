@@ -72,10 +72,13 @@ fi
 COMPOSE_CMD=$(detect_compose_cmd "$CONTAINER_ENGINE")
 echo -e "${GREEN}Using: $CONTAINER_ENGINE with '$COMPOSE_CMD'${NC}"
 
+# Compose file to use
+COMPOSE_FILE="docker-compose-test.yml"
+
 # Function to clean up resources
 cleanup() {
     echo -e "${YELLOW}Cleaning containers and volumes...${NC}"
-    $COMPOSE_CMD down -v 2>/dev/null || true
+    $COMPOSE_CMD -f $COMPOSE_FILE down -v 2>/dev/null || true
     echo -e "${GREEN}Cleanup completed.${NC}"
 }
 
@@ -136,51 +139,22 @@ echo -e "${GREEN}========================================${NC}"
 # Build if requested
 if [ "$BUILD_FLAG" = "--build" ]; then
     echo -e "${YELLOW}Building images...${NC}"
-    $COMPOSE_CMD build
-fi
-
-# Start services in background
-echo -e "${YELLOW}Starting services (Elasticsearch + Redis)...${NC}"
-$COMPOSE_CMD up -d searchkick_elasticsearch searchkick_redis
-
-# Wait for Elasticsearch to be ready
-echo -e "${YELLOW}Waiting for Elasticsearch to be ready...${NC}"
-MAX_WAIT=120
-ELAPSED=0
-until $CONTAINER_ENGINE exec searchkick_elasticsearch curl -s http://localhost:9200/_cluster/health | grep -q '"status":"green\|yellow"' 2>/dev/null; do
-    if [ $ELAPSED -ge $MAX_WAIT ]; then
-        echo -e "${RED}✗ Timeout waiting for Elasticsearch${NC}"
-        $COMPOSE_CMD logs searchkick_elasticsearch
-        $COMPOSE_CMD down
-        exit 1
-    fi
-    echo -e "${YELLOW}  Waiting... ($ELAPSED/$MAX_WAIT seconds)${NC}"
-    sleep 5
-    ELAPSED=$((ELAPSED + 5))
-done
-
-echo -e "${GREEN}✓ Elasticsearch is ready!${NC}"
-
-# Verify Redis
-echo -e "${YELLOW}Verifying Redis...${NC}"
-if $CONTAINER_ENGINE exec searchkick_redis redis-cli ping | grep -q "PONG"; then
-    echo -e "${GREEN}✓ Redis is ready!${NC}"
-else
-    echo -e "${RED}⚠️  Warning: Could not verify Redis${NC}"
+    $COMPOSE_CMD -f $COMPOSE_FILE build
 fi
 
 # Execute according to mode
+# The depends_on with condition: service_healthy will automatically wait for healthchecks
 if [ "$SHELL_MODE" = "true" ]; then
     echo -e "${YELLOW}Opening shell in container...${NC}"
-    $COMPOSE_CMD run --rm searchkick /bin/bash
+    $COMPOSE_CMD -f $COMPOSE_FILE run --rm searchkick_test /bin/bash
 else
     echo -e "${GREEN}Running tests...${NC}"
-    $COMPOSE_CMD run --rm searchkick bundle exec rake test
+    $COMPOSE_CMD -f $COMPOSE_FILE run --rm searchkick_test bundle exec rake test
     exit_code=$?
     
     # Stop services
     echo -e "${YELLOW}Stopping services...${NC}"
-    $COMPOSE_CMD down
+    $COMPOSE_CMD -f $COMPOSE_FILE down
     
     if [ $exit_code -eq 0 ]; then
         echo -e "${GREEN}========================================${NC}"
