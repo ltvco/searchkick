@@ -1,6 +1,21 @@
 require_relative "test_helper"
 
 class ReindexTest < Minitest::Test
+  def setup
+    super  # Call parent setup from test_helper
+    # Ensure index is clean before each test
+    Product.reindex
+  end
+
+  def teardown
+    # Clean up after each test to avoid affecting subsequent tests
+    Searchkick.callbacks(:bulk) do
+      Product.destroy_all
+    end
+    Product.reindex
+    super  # Call parent teardown if exists
+  end
+
   def test_record_inline
     store_names ["Product A", "Product B"], reindex: false
 
@@ -358,5 +373,64 @@ class ReindexTest < Minitest::Test
     Product.searchkick_index.delete if Product.searchkick_index.exists?
     Product.reindex
     Product.reindex # run twice for both index paths
+  end
+
+  def test_use_bulk_queue_single_record
+    product = Product.create!(name: "Product A")
+    assert_enqueued_jobs(1, queue: :searchkick_bulk) do
+      product.reindex(mode: :async, use_bulk_queue: true)
+    end
+  end
+
+  def test_use_bulk_queue_model_reindex
+    store_names ["Product A", "Product B"], reindex: false
+    # When reindexing the whole model with use_bulk_queue, it should use the bulk queue
+    assert_enqueued_jobs(1, queue: :searchkick_bulk) do
+      Product.reindex(mode: :async, use_bulk_queue: true)
+    end
+  end
+
+  def test_use_bulk_queue_relation_reindex
+    store_names ["Product A", "Product B"], reindex: false
+    # When reindexing a relation with use_bulk_queue, it should use the bulk queue
+    assert_enqueued_jobs(1, queue: :searchkick_bulk) do
+      Product.where(name: "Product A").reindex(mode: :async, use_bulk_queue: true)
+    end
+  end
+
+  def test_use_bulk_queue_custom_queue_name
+    original_queue_name = Searchkick.bulk_queue_name
+    Searchkick.bulk_queue_name = :custom_bulk
+    
+    product = Product.create!(name: "Product A")
+    assert_enqueued_jobs(1, queue: :custom_bulk) do
+      product.reindex(mode: :async, use_bulk_queue: true)
+    end
+  ensure
+    Searchkick.bulk_queue_name = original_queue_name
+  end
+
+  def test_use_bulk_queue_with_job_options_override
+    product = Product.create!(name: "Product A")
+    # job_options should override use_bulk_queue when both are specified
+    assert_enqueued_jobs(1, queue: :priority) do
+      product.reindex(mode: :async, use_bulk_queue: true, job_options: {queue: :priority})
+    end
+  end
+
+  def test_without_use_bulk_queue_uses_default_queue
+    product = Product.create!(name: "Product A")
+    # Without use_bulk_queue, it should use the default queue (:searchkick)
+    assert_enqueued_jobs(1, queue: :searchkick) do
+      product.reindex(mode: :async)
+    end
+  end
+
+  def test_use_bulk_queue_false_uses_default_queue
+    product = Product.create!(name: "Product A")
+    # Explicitly setting use_bulk_queue to false should use default queue
+    assert_enqueued_jobs(1, queue: :searchkick) do
+      product.reindex(mode: :async, use_bulk_queue: false)
+    end
   end
 end

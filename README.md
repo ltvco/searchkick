@@ -2121,6 +2121,18 @@ Change the queue name
 Searchkick.queue_name = :search_reindex # defaults to :searchkick
 ```
 
+Change the bulk queue name for reindexing operations
+
+```ruby
+Searchkick.bulk_queue_name = :search_bulk_reindex # defaults to :searchkick_bulk
+```
+
+Use the bulk queue for a specific reindex operation
+
+```ruby
+Product.reindex(mode: :async, use_bulk_queue: true)
+```
+
 Change the queue name or priority for a model
 
 ```ruby
