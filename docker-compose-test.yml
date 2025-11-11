@@ -1,0 +1,57 @@
+# Docker Compose for Searchkick CI/Testing
+services:
+  searchkick_test:
+    build:
+      context: .
+      args:
+        - BUNDLE_GEMSTASH__LTVOPS__COM
+    image: searchkick:test
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      - ELASTICSEARCH_URL=http://searchkick_test_elasticsearch:9200
+      - REDIS_URL=redis://searchkick_test_redis:6379/0
+      - RACK_ENV=test
+    depends_on:
+      searchkick_test_elasticsearch:
+        condition: service_healthy
+      searchkick_test_redis:
+        condition: service_healthy
+    networks:
+      - searchkick_test_network
+
+  searchkick_test_elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.0.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    networks:
+      - searchkick_test_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl --silent --fail localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  searchkick_test_redis:
+    image: redis:7.0-alpine
+    networks:
+      - searchkick_test_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+networks:
+  searchkick_test_network:
+    driver: bridge
+

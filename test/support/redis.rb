@@ -1,13 +1,15 @@
 options = {}
 options[:logger] = $logger if !defined?(RedisClient)
 
+redis_url = ENV["REDIS_URL"]
+
 Searchkick.redis =
   if !defined?(Redis)
-    RedisClient.config.new_pool
+    RedisClient.config(url: redis_url).new_pool
   elsif defined?(ConnectionPool)
-    ConnectionPool.new { Redis.new(**options) }
+    ConnectionPool.new { Redis.new(url: redis_url, **options) }
   else
-    Redis.new(**options)
+    Redis.new(url: redis_url, **options)
   end
 
 module RedisInstrumentation

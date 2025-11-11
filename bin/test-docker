@@ -1,0 +1,171 @@
+#!/bin/bash
+# Script to run tests in Docker/Podman with Elasticsearch
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Detect whether to use docker or podman
+detect_container_engine() {
+    if command -v podman &> /dev/null; then
+        echo "podman"
+    elif command -v docker &> /dev/null; then
+        echo "docker"
+    else
+        echo ""
+    fi
+}
+
+# Detect compose command
+detect_compose_cmd() {
+    local engine=$1
+    if [ "$engine" = "podman" ]; then
+        if command -v podman-compose &> /dev/null; then
+            echo "podman-compose"
+        else
+            echo "podman compose"
+        fi
+    else
+        if command -v docker-compose &> /dev/null; then
+            echo "docker-compose"
+        else
+            echo "docker compose"
+        fi
+    fi
+}
+
+# Help function
+show_help() {
+    cat << EOF
+Usage: bin/test-docker [OPTION]
+
+Runs Searchkick tests in a containerized environment with Elasticsearch.
+Automatically detects whether to use Docker or Podman.
+
+OPTIONS:
+    --build             Force rebuild of images
+    --clean             Clean containers and volumes before running
+    --shell             Open a shell in the container instead of running tests
+    --help              Show this help
+
+EXAMPLES:
+    bin/test-docker                 # Run tests
+    bin/test-docker --build         # Rebuild and run tests
+    bin/test-docker --clean --build # Complete cleanup and rebuild
+    bin/test-docker --shell         # Open shell for debugging
+
+EOF
+}
+
+# Detect engine and compose
+CONTAINER_ENGINE=$(detect_container_engine)
+if [ -z "$CONTAINER_ENGINE" ]; then
+    echo -e "${RED}Error: Neither Docker nor Podman found installed.${NC}"
+    echo "Please install one of them to continue."
+    exit 1
+fi
+
+COMPOSE_CMD=$(detect_compose_cmd "$CONTAINER_ENGINE")
+echo -e "${GREEN}Using: $CONTAINER_ENGINE with '$COMPOSE_CMD'${NC}"
+
+# Compose file to use
+COMPOSE_FILE="docker-compose-test.yml"
+
+# Function to clean up resources
+cleanup() {
+    echo -e "${YELLOW}Cleaning containers and volumes...${NC}"
+    $COMPOSE_CMD -f $COMPOSE_FILE down -v 2>/dev/null || true
+    echo -e "${GREEN}Cleanup completed.${NC}"
+}
+
+# Parse arguments
+BUILD_FLAG=""
+CLEAN_MODE="false"
+SHELL_MODE="false"
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --build)
+            BUILD_FLAG="--build"
+            shift
+            ;;
+        --clean)
+            CLEAN_MODE="true"
+            shift
+            ;;
+        --shell)
+            SHELL_MODE="true"
+            shift
+            ;;
+        --help)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}Unknown option: $1${NC}"
+            show_help
+            exit 1
+            ;;
+    esac
+done
+
+# Verify that the engine is running
+if ! $CONTAINER_ENGINE info > /dev/null 2>&1; then
+    echo -e "${RED}Error: $CONTAINER_ENGINE is not running.${NC}"
+    if [ "$CONTAINER_ENGINE" = "podman" ]; then
+        echo -e "${YELLOW}To start Podman Machine (macOS/Windows):${NC}"
+        echo "  podman machine start"
+    else
+        echo -e "${YELLOW}To start Docker:${NC}"
+        echo "  - On macOS/Windows: Open Docker Desktop"
+        echo "  - On Linux: sudo systemctl start docker"
+    fi
+    exit 1
+fi
+
+# Clean if requested
+if [ "$CLEAN_MODE" = "true" ]; then
+    cleanup
+fi
+
+echo -e "${GREEN}========================================${NC}"
+echo -e "${GREEN}Running tests with Elasticsearch${NC}"
+echo -e "${GREEN}========================================${NC}"
+
+# Build if requested
+if [ "$BUILD_FLAG" = "--build" ]; then
+    echo -e "${YELLOW}Building images...${NC}"
+    $COMPOSE_CMD -f $COMPOSE_FILE build
+fi
+
+# Execute according to mode
+# The depends_on with condition: service_healthy will automatically wait for healthchecks
+if [ "$SHELL_MODE" = "true" ]; then
+    echo -e "${YELLOW}Opening shell in container...${NC}"
+    $COMPOSE_CMD -f $COMPOSE_FILE run --rm searchkick_test /bin/bash
+else
+    echo -e "${GREEN}Running tests...${NC}"
+    $COMPOSE_CMD -f $COMPOSE_FILE run --rm searchkick_test bundle exec rake test
+    exit_code=$?
+    
+    # Stop services
+    echo -e "${YELLOW}Stopping services...${NC}"
+    $COMPOSE_CMD -f $COMPOSE_FILE down
+    
+    if [ $exit_code -eq 0 ]; then
+        echo -e "${GREEN}========================================${NC}"
+        echo -e "${GREEN}✓ All tests passed successfully${NC}"
+        echo -e "${GREEN}========================================${NC}"
+        exit 0
+    else
+        echo -e "${RED}========================================${NC}"
+        echo -e "${RED}✗ Tests failed${NC}"
+        echo -e "${RED}========================================${NC}"
+        exit $exit_code
+    fi
+fi
+
