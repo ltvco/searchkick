@@ -1,0 +1,57 @@
+name: Build and Upload Gem
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-and-upload-gem:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 3.2 # Update to the correct Ruby version required
+      - name: Load secrets
+        id: load_secrets
+        uses: ltvco/github-actions/aws-secret-loader@aws-secret-loader-v1
+        with:
+          map: |
+            github-access-token,
+            npm-token,
+            gemstash-token
+          aws_access_key_id: ${{ secrets.GHA_AWS_ACCESS_KEY }}
+          aws_secret_access_key: ${{ secrets.GHA_AWS_SECRET_KEY }}
+          aws_secret_name: github-action-build-args
+      - name: Load common secrets
+        uses: ltvco/github-actions/env-var-loader@env-var-loader-v1
+        with:
+          map: |
+            github-access-token,
+            NPM_TOKEN:npm-token,
+            GEMSTASH_KEY:gemstash-token
+          aws_access_key_id: ${{ secrets.GHA_AWS_ACCESS_KEY }}
+          aws_secret_access_key: ${{ secrets.GHA_AWS_SECRET_KEY }}
+          aws_secret_name: github-action-build-args
+      - name: Install bundler
+        run: gem install bundler
+      - name: Build and deploy gem
+        env:
+          GEMSTASH_KEY: ${{ steps.load_secrets.outputs.gemstash-token }}
+        run: |
+          echo "Setting up Gem Credentials"
+          mkdir -p ~/.gem
+          echo ":gem_key: $GEMSTASH_KEY" >> ~/.gem/credentials
+          chmod 0600 ~/.gem/credentials
+          export GEM_VER=$(ruby -e "require './lib/searchkick/version'; puts Searchkick::VERSION")
+          echo "Gem Version: $GEM_VER"
+          echo 'Building Gem'
+          gem build searchkick.gemspec
+          echo 'Pushing Gem to Gemstash'
+          gem push searchkick-$GEM_VER.gem --key gem_key --host https://gemstash.ltvops.com/private
+
