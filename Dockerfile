@@ -4,6 +4,7 @@ FROM ruby:3.4.4-slim-bookworm AS builder
 ARG BUNDLE_GEMSTASH__LTVOPS__COM
 
 RUN apt-get update \
+    && (rm /var/lib/man-db/auto-update 2>/dev/null || true) \
     && apt-get install -y --no-install-recommends \
     build-essential \
     git \
